@@ -9,6 +9,7 @@ import {
   printSuccess,
   printMembershipMessage,
 } from "../utils/display.ts";
+import { isMembershipError } from "../utils/validation.ts";
 
 export default defineCommand({
   meta: {
@@ -45,11 +46,18 @@ export default defineCommand({
     verify: {
       type: "string",
       description: "Verify title contains this string",
-      alias: ["v"],
+      alias: ["V"],
     },
   },
   async run({ args }) {
-    const limit = args.limit ? parseInt(args.limit, 10) : 10;
+    let limit = 10;
+    if (args.limit) {
+      limit = parseInt(args.limit, 10);
+      if (Number.isNaN(limit) || limit < 1) {
+        printError(`Invalid limit "${args.limit}". Must be a positive integer.`);
+        process.exit(1);
+      }
+    }
 
     const spinner = createSpinner("Searching...").start();
     const client = new AnnaClient({
@@ -69,7 +77,9 @@ export default defineCommand({
     }
 
     spinner.stop();
-    process.stderr.write("\r\x1b[K");
+    if (process.stderr.isTTY) {
+      process.stderr.write("\r\x1b[K");
+    }
 
     if (args.json) {
       console.log(JSON.stringify(results, null, 2));
@@ -133,19 +143,21 @@ export default defineCommand({
     const s = clackSpinner();
     s.start("Getting download link...");
 
-    const { url, error } = await client.getFastDownloadUrl(
-      selected.md5,
-      apiKey,
-    );
+    let url: string | undefined;
+    let error: string | undefined;
+    try {
+      const result = await client.getFastDownloadUrl(selected.md5, apiKey);
+      url = result.url;
+      error = result.error;
+    } catch (e) {
+      s.stop("Failed");
+      printError(e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     if (error || !url) {
       s.stop("Failed");
-      if (
-        error &&
-        (error.toLowerCase().includes("not a member") ||
-          error.toLowerCase().includes("invalid") ||
-          error.toLowerCase().includes("expired"))
-      ) {
+      if (error && isMembershipError(error)) {
         printMembershipMessage(
           error,
           selected.md5,

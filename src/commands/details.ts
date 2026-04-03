@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import { createSpinner } from "nanospinner";
 import { AnnaClient } from "../lib/client.ts";
 import { formatBookDetails, printError } from "../utils/display.ts";
+import { isValidMd5, normalizeMd5 } from "../utils/validation.ts";
 
 export default defineCommand({
   meta: {
@@ -21,10 +22,11 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    if (!/^[a-f0-9]{32}$/.test(args.md5)) {
+    if (!isValidMd5(args.md5)) {
       printError("Invalid MD5 hash. Expected 32 hex characters.");
       process.exit(1);
     }
+    const md5 = normalizeMd5(args.md5);
 
     const spinner = createSpinner("Fetching details...").start();
     const client = new AnnaClient({
@@ -33,14 +35,16 @@ export default defineCommand({
 
     let details;
     try {
-      details = await client.getDetails(args.md5);
+      details = await client.getDetails(md5);
     } catch (e) {
       spinner.error({ text: e instanceof Error ? e.message : String(e) });
       process.exit(1);
     }
 
     spinner.stop();
-    process.stderr.write("\r\x1b[K");
+    if (process.stderr.isTTY) {
+      process.stderr.write("\r\x1b[K");
+    }
 
     if (!details) {
       printError("Book not found.");

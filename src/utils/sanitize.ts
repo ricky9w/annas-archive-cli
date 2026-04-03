@@ -19,8 +19,13 @@ export function sanitizeFilename(
   md5: string,
   fallbackExt = "pdf",
 ): string {
-  // URL-decode
-  let name = decodeURIComponent(raw);
+  // URL-decode (fallback to raw string on malformed encoding)
+  let name: string;
+  try {
+    name = decodeURIComponent(raw);
+  } catch {
+    name = raw;
+  }
 
   // Extract basename only (prevent path traversal)
   name = basename(name);

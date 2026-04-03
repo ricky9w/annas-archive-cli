@@ -7,8 +7,8 @@ const KNOWN_MIRRORS = [
 
 const DISCOVERY_URL = "https://open-slum.pages.dev/";
 
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+export const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 export interface MirrorManagerOptions {
   /** Called with a status message when trying mirrors or discovering new ones. */
@@ -42,28 +42,48 @@ export class MirrorManager {
       this.workingDomain = null;
     }
 
-    // Try known mirrors
-    for (const domain of KNOWN_MIRRORS) {
-      this.onStatus?.(`Trying ${domain}...`);
-      const res = await this.tryFetch(domain, path, init);
-      if (res) {
-        this.workingDomain = domain;
-        return res;
-      }
+    // Race all known mirrors concurrently — fastest response wins
+    this.onStatus?.("Probing mirrors...");
+    const knownResult = await this.raceMirrors(KNOWN_MIRRORS, path, init);
+    if (knownResult) {
+      this.workingDomain = knownResult.domain;
+      return knownResult.response;
     }
 
-    // All known mirrors failed — discover new ones
+    // All known mirrors failed — discover and race new ones
     this.onStatus?.("Discovering new mirrors...");
-    for (const domain of await this.discoverMirrors()) {
-      this.onStatus?.(`Trying ${domain}...`);
-      const res = await this.tryFetch(domain, path, init);
-      if (res) {
-        this.workingDomain = domain;
-        return res;
+    const discovered = await this.discoverMirrors();
+    if (discovered.length > 0) {
+      const discoveredResult = await this.raceMirrors(discovered, path, init);
+      if (discoveredResult) {
+        this.workingDomain = discoveredResult.domain;
+        return discoveredResult.response;
       }
     }
 
     throw new Error("Could not connect to any mirror");
+  }
+
+  private async raceMirrors(
+    domains: string[],
+    path: string,
+    init?: RequestInit,
+  ): Promise<{ domain: string; response: Response } | null> {
+    if (domains.length === 0) return null;
+
+    try {
+      return await Promise.any(
+        domains.map(async (domain) => {
+          this.onStatus?.(`Trying ${domain}...`);
+          const res = await this.tryFetch(domain, path, init);
+          if (!res) throw new Error(`${domain} failed`);
+          return { domain, response: res };
+        }),
+      );
+    } catch {
+      // All mirrors failed (AggregateError)
+      return null;
+    }
   }
 
   private async tryFetch(
@@ -84,7 +104,10 @@ export class MirrorManager {
       });
 
       // 5xx = mirror issue, try next
-      if (res.status >= 500) return null;
+      if (res.status >= 500) {
+        await res.body?.cancel();
+        return null;
+      }
 
       // 2xx/3xx/4xx = mirror is working (caller handles the response)
       return res;

@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
+import pkg from "../package.json";
 
 const main = defineCommand({
   meta: {
     name: "annas",
-    version: "0.1.0",
+    version: pkg.version,
     description: "Search and download ebooks from Anna's Archive",
   },
   subCommands: {

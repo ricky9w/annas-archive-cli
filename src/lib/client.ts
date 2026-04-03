@@ -2,6 +2,7 @@ import { MirrorManager } from "./mirrors.ts";
 import type { MirrorManagerOptions } from "./mirrors.ts";
 import { parseSearchResults, parseBookDetails } from "./parser.ts";
 import type { BookResult, BookDetails, SearchOptions } from "../types.ts";
+import { NetworkError } from "../utils/errors.ts";
 
 interface FastDownloadResponse {
   download_url?: string;
@@ -32,7 +33,16 @@ export class AnnaClient {
     if (sort) params.set("sort", sort);
 
     const res = await this.mirrors.fetch(`/search?${params}`);
-    if (!res.ok) return [];
+    if (!res.ok) {
+      await res.body?.cancel();
+      const hint =
+        res.status === 403
+          ? " (Forbidden — you may be rate-limited)"
+          : res.status === 429
+            ? " (Rate limited — try again later)"
+            : "";
+      throw new NetworkError(`Search failed: HTTP ${res.status}${hint}`, res.status);
+    }
 
     const html = await res.text();
     const results = parseSearchResults(html, limit);
@@ -52,7 +62,11 @@ export class AnnaClient {
   /** Get detailed information about a book. */
   async getDetails(md5: string): Promise<BookDetails | null> {
     const res = await this.mirrors.fetch(`/md5/${md5}`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await res.body?.cancel();
+      if (res.status === 404) return null;
+      throw new NetworkError(`Details fetch failed: HTTP ${res.status}`, res.status);
+    }
 
     const html = await res.text();
     return parseBookDetails(html, md5);

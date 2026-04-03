@@ -9,6 +9,11 @@ import {
 
 const VALID_KEYS = ["key", "output", "format"];
 
+function maskKey(value: string): string {
+  if (value.length <= 12) return "***";
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
 export default defineCommand({
   meta: {
     name: "config",
@@ -37,9 +42,7 @@ export default defineCommand({
           process.exit(1);
         }
         await setConfigValue(args.key, args.value);
-        const display = args.key === "key"
-          ? `${args.value.slice(0, 8)}...`
-          : args.value;
+        const display = args.key === "key" ? maskKey(args.value) : args.value;
         console.log(pc.green(`Set ${args.key} = ${display}`));
       },
     }),
@@ -54,11 +57,15 @@ export default defineCommand({
         },
       },
       async run({ args }) {
+        if (!VALID_KEYS.includes(args.key)) {
+          console.error(
+            pc.red(`Invalid key "${args.key}". Valid keys: ${VALID_KEYS.join(", ")}`),
+          );
+          process.exit(1);
+        }
         const value = await getConfigValue(args.key);
         if (value) {
-          const display = args.key === "key"
-            ? `${value.slice(0, 8)}...${value.slice(-4)}`
-            : value;
+          const display = args.key === "key" ? maskKey(value) : value;
           console.log(display);
         } else {
           console.log(pc.dim("(not set)"));
@@ -86,14 +93,11 @@ export default defineCommand({
         }
 
         for (const [key, value] of entries) {
-          const display = key === "key"
-            ? `${String(value).slice(0, 8)}...${String(value).slice(-4)}`
-            : value;
+          const display = key === "key" ? maskKey(String(value)) : value;
           console.log(`${pc.bold(key)}: ${display}`);
         }
         console.log(pc.dim(`\nConfig file: ${getConfigPath()}`));
       },
     }),
   },
-
 });

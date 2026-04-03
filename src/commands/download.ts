@@ -8,6 +8,7 @@ import {
   printSuccess,
   printMembershipMessage,
 } from "../utils/display.ts";
+import { isValidMd5, normalizeMd5, isMembershipError } from "../utils/validation.ts";
 
 export default defineCommand({
   meta: {
@@ -32,15 +33,16 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    if (!/^[a-f0-9]{32}$/.test(args.md5)) {
+    if (!isValidMd5(args.md5)) {
       printError("Invalid MD5 hash. Expected 32 hex characters.");
       process.exit(1);
     }
+    const md5 = normalizeMd5(args.md5);
 
     // Resolve API key early — no need to contact mirrors if key is missing
     const apiKey = await getApiKey();
     if (!apiKey) {
-      printMembershipMessage("API key not set", args.md5);
+      printMembershipMessage("API key not set", md5);
       process.exit(1);
     }
 
@@ -52,19 +54,14 @@ export default defineCommand({
 
     let url: string;
     try {
-      const result = await client.getFastDownloadUrl(args.md5, apiKey);
+      const result = await client.getFastDownloadUrl(md5, apiKey);
       if (result.error || !result.url) {
         spinner.error({ text: "Failed" });
         const error = result.error;
-        if (
-          error &&
-          (error.toLowerCase().includes("not a member") ||
-            error.toLowerCase().includes("invalid") ||
-            error.toLowerCase().includes("expired"))
-        ) {
+        if (error && isMembershipError(error)) {
           printMembershipMessage(
             error,
-            args.md5,
+            md5,
             client.getDomain() ?? undefined,
           );
         } else {
@@ -92,7 +89,7 @@ export default defineCommand({
         url,
         outputDir,
         filename: args.name,
-        md5: args.md5,
+        md5,
         onProgress: (p) => {
           const pct = p.percent ? `${p.percent}%` : "";
           const size = formatBytes(p.downloaded);

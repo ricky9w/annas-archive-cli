@@ -1,6 +1,8 @@
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { sanitizeFilename } from "../utils/sanitize.ts";
+import { USER_AGENT } from "./mirrors.ts";
+import { DownloadError, StallError } from "../utils/errors.ts";
 
 interface DownloadProgress {
   downloaded: number;
@@ -19,8 +21,13 @@ interface DownloadOptions {
   maxRetries?: number;
 }
 
+interface StreamResult {
+  bytesWritten: number;
+  md5Hash: string | null;
+}
+
 /**
- * Download a file with streaming progress and retry logic.
+ * Download a file with streaming progress, resume support, and retry logic.
  * Returns the path to the downloaded file.
  */
 export async function downloadBook(
@@ -34,31 +41,56 @@ export async function downloadBook(
     maxRetries = 3,
   } = options;
 
-  mkdirSync(outputDir, { recursive: true });
+  await mkdir(outputDir, { recursive: true });
 
-  // Determine filename
-  let filename = options.filename;
-  if (!filename) {
-    const urlFilename = url.split("/").pop()?.split("?")[0] || "";
-    filename = sanitizeFilename(urlFilename, md5);
-  }
+  // Determine filename — always sanitize, even user-provided names
+  const raw = options.filename || url.split("/").pop()?.split("?")[0] || "";
+  const filename = sanitizeFilename(raw, md5);
 
   const outputPath = resolve(join(outputDir, filename));
 
   // Verify output stays within target directory (path traversal defense)
   const resolvedDir = resolve(outputDir);
-  if (!outputPath.startsWith(resolvedDir)) {
+  if (!outputPath.startsWith(resolvedDir + sep) && outputPath !== resolvedDir) {
     throw new Error("Invalid filename: path traversal detected");
   }
 
   let lastError: Error | null = null;
+  let bytesOnDisk = 0;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await streamDownload(url, outputPath, onProgress);
+      const result = await streamDownload(
+        url,
+        outputPath,
+        onProgress,
+        bytesOnDisk,
+      );
+
+      // Verify MD5 integrity (skip for resumed downloads — hash covers only new bytes)
+      if (result.md5Hash && bytesOnDisk === 0) {
+        if (result.md5Hash !== md5.toLowerCase()) {
+          throw new DownloadError(
+            `Integrity check failed: expected MD5 ${md5}, got ${result.md5Hash}`,
+            true,
+          );
+        }
+      }
+
       return outputPath;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
+
+      // Check how much was written to disk for resume
+      try {
+        const file = Bun.file(outputPath);
+        if (await file.exists()) {
+          bytesOnDisk = file.size;
+        }
+      } catch {
+        // ignore stat errors
+      }
+
       if (attempt < maxRetries) {
         const delay = Math.pow(2, attempt - 1) * 1000;
         await new Promise((r) => setTimeout(r, delay));
@@ -69,56 +101,125 @@ export async function downloadBook(
   throw lastError ?? new Error("Download failed");
 }
 
+const STALL_TIMEOUT_MS = 30_000;
+
 async function streamDownload(
   url: string,
   outputPath: string,
   onProgress?: ProgressCallback,
-): Promise<void> {
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(300000), // 5 min timeout for large files
-    redirect: "follow",
-  });
+  resumeFrom = 0,
+): Promise<StreamResult> {
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+  };
 
-  if (!res.ok) {
-    throw new Error(`Download failed: HTTP ${res.status}`);
+  if (resumeFrom > 0) {
+    headers["Range"] = `bytes=${resumeFrom}-`;
+  }
+
+  // Stall detection: abort if no data received for STALL_TIMEOUT_MS
+  const controller = new AbortController();
+  let stallTimer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
+
+  const resetStallTimer = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers,
+    });
+  } catch (e) {
+    clearTimeout(stallTimer);
+    if (controller.signal.aborted) {
+      throw new StallError(STALL_TIMEOUT_MS / 1000);
+    }
+    throw e;
+  }
+
+  // Range not satisfiable — file already complete
+  if (resumeFrom > 0 && res.status === 416) {
+    clearTimeout(stallTimer);
+    await res.body?.cancel();
+    return { bytesWritten: resumeFrom, md5Hash: null };
+  }
+
+  // Server ignored Range header — restart from beginning
+  if (resumeFrom > 0 && res.status === 200) {
+    resumeFrom = 0;
+  }
+
+  if (!res.ok && res.status !== 206) {
+    clearTimeout(stallTimer);
+    await res.body?.cancel();
+    throw new DownloadError(
+      `Download failed: HTTP ${res.status}`,
+      res.status >= 500,
+    );
   }
 
   const totalStr = res.headers.get("content-length");
-  const total = totalStr ? parseInt(totalStr, 10) : null;
+  const contentLength = totalStr ? parseInt(totalStr, 10) : null;
+  const total =
+    contentLength !== null && !Number.isNaN(contentLength)
+      ? contentLength + resumeFrom
+      : null;
 
   if (!res.body) {
-    throw new Error("No response body");
+    clearTimeout(stallTimer);
+    throw new DownloadError("No response body", true);
   }
 
+  // Stream directly to disk — memory usage stays O(chunk_size)
+  const writer = Bun.file(outputPath).writer();
   const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let downloaded = 0;
+  const hasher = new Bun.CryptoHasher("md5");
+  let downloaded = resumeFrom;
+  let canHash = resumeFrom === 0; // Only hash non-resumed downloads
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    chunks.push(value);
-    downloaded += value.length;
+      resetStallTimer();
+      writer.write(value);
+      if (canHash) hasher.update(value);
+      downloaded += value.length;
 
-    if (onProgress) {
-      onProgress({
-        downloaded,
-        total,
-        percent: total ? Math.round((downloaded / total) * 100) : null,
-      });
+      if (onProgress) {
+        onProgress({
+          downloaded,
+          total,
+          percent: total ? Math.round((downloaded / total) * 100) : null,
+        });
+      }
     }
+    await writer.end();
+  } catch (e) {
+    // Flush partial file so it can be resumed
+    try {
+      await writer.end();
+    } catch {
+      // ignore close errors
+    }
+    clearTimeout(stallTimer);
+    if (controller.signal.aborted) {
+      throw new StallError(STALL_TIMEOUT_MS / 1000);
+    }
+    throw e;
+  } finally {
+    clearTimeout(stallTimer);
   }
 
-  // Concatenate chunks and write
-  const buffer = new Uint8Array(downloaded);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  await Bun.write(outputPath, buffer);
+  return {
+    bytesWritten: downloaded,
+    md5Hash: canHash ? hasher.digest("hex") : null,
+  };
 }
 
 /** Format bytes as human-readable string. */
