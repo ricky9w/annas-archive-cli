@@ -15,5 +15,6 @@
     "noUnusedParameters": true,
     "types": ["bun-types"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["dist"]
 }

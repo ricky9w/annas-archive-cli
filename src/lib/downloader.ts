@@ -1,4 +1,7 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { finished } from "node:stream/promises";
+import { createHash } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 import { sanitizeFilename } from "../utils/sanitize.ts";
 import { USER_AGENT } from "./mirrors.ts";
@@ -83,12 +86,10 @@ export async function downloadBook(
 
       // Check how much was written to disk for resume
       try {
-        const file = Bun.file(outputPath);
-        if (await file.exists()) {
-          bytesOnDisk = file.size;
-        }
+        const fileStat = await stat(outputPath);
+        bytesOnDisk = fileStat.size;
       } catch {
-        // ignore stat errors
+        // ignore stat errors (file may not exist yet)
       }
 
       if (attempt < maxRetries) {
@@ -175,11 +176,13 @@ async function streamDownload(
   }
 
   // Stream directly to disk — memory usage stays O(chunk_size)
-  const writer = Bun.file(outputPath).writer();
+  const writeStream = createWriteStream(outputPath, {
+    flags: resumeFrom > 0 ? "a" : "w",
+  });
   const reader = res.body.getReader();
-  const hasher = new Bun.CryptoHasher("md5");
+  const hasher = createHash("md5");
   let downloaded = resumeFrom;
-  let canHash = resumeFrom === 0; // Only hash non-resumed downloads
+  const canHash = resumeFrom === 0; // Only hash non-resumed downloads
 
   try {
     while (true) {
@@ -187,7 +190,7 @@ async function streamDownload(
       if (done) break;
 
       resetStallTimer();
-      writer.write(value);
+      writeStream.write(value);
       if (canHash) hasher.update(value);
       downloaded += value.length;
 
@@ -199,11 +202,13 @@ async function streamDownload(
         });
       }
     }
-    await writer.end();
+    writeStream.end();
+    await finished(writeStream);
   } catch (e) {
     // Flush partial file so it can be resumed
     try {
-      await writer.end();
+      writeStream.end();
+      await finished(writeStream);
     } catch {
       // ignore close errors
     }

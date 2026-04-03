@@ -1,4 +1,4 @@
-import { mkdir, chmod } from "node:fs/promises";
+import { mkdir, chmod, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppConfig } from "../types.ts";
@@ -20,12 +20,11 @@ export function getConfigPath(): string {
 export async function loadConfig(): Promise<AppConfig> {
   const configPath = getConfigPath();
   try {
-    const file = Bun.file(configPath);
-    if (await file.exists()) {
-      return (await file.json()) as AppConfig;
-    }
+    const raw = await readFile(configPath, "utf-8");
+    return JSON.parse(raw) as AppConfig;
   } catch (e) {
     const code = (e as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") return {};
     if (code === "EACCES" || code === "EPERM") {
       console.error(
         `Warning: config file ${configPath} is not readable (${code}). Using defaults.`,
@@ -42,7 +41,7 @@ export async function loadConfig(): Promise<AppConfig> {
 export async function saveConfig(config: AppConfig): Promise<void> {
   const configPath = getConfigPath();
   await mkdir(dirname(configPath), { recursive: true });
-  await Bun.write(configPath, JSON.stringify(config, null, 2) + "\n");
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
   await chmod(configPath, 0o600);
 }
 

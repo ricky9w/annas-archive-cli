@@ -4,11 +4,15 @@
   "description": "Search and download ebooks from Anna's Archive",
   "type": "module",
   "bin": {
-    "annas": "./src/index.ts"
+    "annas": "./dist/index.js"
   },
   "files": [
-    "src"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
   "keywords": [
     "ebook",
     "annas-archive",
@@ -19,10 +23,12 @@
   "author": "ricky9w",
   "license": "MIT",
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.0.0",
+    "node": ">=20.0.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "tsup": "^8.0.0"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",

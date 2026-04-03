@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 import { defineCommand, runMain } from "citty";
 import pkg from "../package.json";
 
