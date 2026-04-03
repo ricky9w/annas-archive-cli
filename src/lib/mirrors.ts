@@ -1,5 +1,3 @@
-import { printDim } from "../utils/display.ts";
-
 const KNOWN_MIRRORS = [
   "annas-archive.gl",
   "annas-archive.li",
@@ -12,37 +10,17 @@ const DISCOVERY_URL = "https://open-slum.pages.dev/";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+export interface MirrorManagerOptions {
+  /** Called with a status message when trying mirrors or discovering new ones. */
+  onStatus?: (msg: string) => void;
+}
+
 export class MirrorManager {
   private workingDomain: string | null = null;
+  private onStatus?: (msg: string) => void;
 
-  /** Get a working base URL, trying mirrors in order. */
-  async getBaseUrl(): Promise<string> {
-    if (this.workingDomain) {
-      return `https://${this.workingDomain}`;
-    }
-
-    // Try known mirrors
-    for (const domain of KNOWN_MIRRORS) {
-      if (await this.probe(domain)) {
-        this.workingDomain = domain;
-        printDim(`Using mirror: ${domain}`);
-        return `https://${domain}`;
-      }
-    }
-
-    // All known mirrors failed — discover new ones
-    printDim("Known mirrors unreachable, discovering new mirrors...");
-    for (const domain of await this.discoverMirrors()) {
-      if (await this.probe(domain)) {
-        this.workingDomain = domain;
-        printDim(`Discovered new mirror: ${domain}`);
-        return `https://${domain}`;
-      }
-    }
-
-    // Fallback to first known mirror
-    printDim("Warning: Could not connect to any mirror");
-    return `https://${KNOWN_MIRRORS[0]}`;
+  constructor(options?: MirrorManagerOptions) {
+    this.onStatus = options?.onStatus;
   }
 
   /** Get the cached working domain, if any. */
@@ -50,16 +28,68 @@ export class MirrorManager {
     return this.workingDomain;
   }
 
-  private async probe(domain: string): Promise<boolean> {
+  /**
+   * Fetch a path across mirrors, returning the first successful Response.
+   * The actual request IS the mirror probe — no separate connectivity check.
+   * Retries on network errors and 5xx; returns 4xx responses to caller.
+   */
+  async fetch(path: string, init?: RequestInit): Promise<Response> {
+    // If we have a cached working domain, try it first
+    if (this.workingDomain) {
+      const res = await this.tryFetch(this.workingDomain, path, init);
+      if (res) return res;
+      // Cached domain failed — reset and try all
+      this.workingDomain = null;
+    }
+
+    // Try known mirrors
+    for (const domain of KNOWN_MIRRORS) {
+      this.onStatus?.(`Trying ${domain}...`);
+      const res = await this.tryFetch(domain, path, init);
+      if (res) {
+        this.workingDomain = domain;
+        return res;
+      }
+    }
+
+    // All known mirrors failed — discover new ones
+    this.onStatus?.("Discovering new mirrors...");
+    for (const domain of await this.discoverMirrors()) {
+      this.onStatus?.(`Trying ${domain}...`);
+      const res = await this.tryFetch(domain, path, init);
+      if (res) {
+        this.workingDomain = domain;
+        return res;
+      }
+    }
+
+    throw new Error("Could not connect to any mirror");
+  }
+
+  private async tryFetch(
+    domain: string,
+    path: string,
+    init?: RequestInit,
+  ): Promise<Response | null> {
     try {
-      const res = await fetch(`https://${domain}/`, {
-        headers: { "User-Agent": USER_AGENT },
-        signal: AbortSignal.timeout(8000),
+      const url = `https://${domain}${path}`;
+      const res = await fetch(url, {
+        ...init,
+        headers: {
+          "User-Agent": USER_AGENT,
+          ...(init?.headers as Record<string, string>),
+        },
+        signal: AbortSignal.timeout(30000),
         redirect: "follow",
       });
-      return res.ok;
+
+      // 5xx = mirror issue, try next
+      if (res.status >= 500) return null;
+
+      // 2xx/3xx/4xx = mirror is working (caller handles the response)
+      return res;
     } catch {
-      return false;
+      return null;
     }
   }
 

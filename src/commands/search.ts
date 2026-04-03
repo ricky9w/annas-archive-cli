@@ -4,7 +4,11 @@ import { AnnaClient } from "../lib/client.ts";
 import { formatBookList } from "../utils/display.ts";
 import { loadConfig, getApiKey } from "../utils/config.ts";
 import { downloadBook, formatBytes } from "../lib/downloader.ts";
-import { printError, printSuccess, printMembershipMessage } from "../utils/display.ts";
+import {
+  printError,
+  printSuccess,
+  printMembershipMessage,
+} from "../utils/display.ts";
 
 export default defineCommand({
   meta: {
@@ -46,18 +50,25 @@ export default defineCommand({
   },
   async run({ args }) {
     const limit = args.limit ? parseInt(args.limit, 10) : 10;
-    const client = new AnnaClient();
 
     const spinner = createSpinner("Searching...").start();
-
-    const results = await client.search(args.query, {
-      format: args.format,
-      limit,
-      verify: args.verify,
+    const client = new AnnaClient({
+      onStatus: (msg) => spinner.update({ text: msg }),
     });
 
+    let results;
+    try {
+      results = await client.search(args.query, {
+        format: args.format,
+        limit,
+        verify: args.verify,
+      });
+    } catch (e) {
+      spinner.error({ text: e instanceof Error ? e.message : String(e) });
+      process.exit(1);
+    }
+
     spinner.stop();
-    // Clear the spinner line
     process.stderr.write("\r\x1b[K");
 
     if (args.json) {

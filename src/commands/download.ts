@@ -37,40 +37,44 @@ export default defineCommand({
       process.exit(1);
     }
 
-    const client = new AnnaClient();
-
-    // Resolve API key
+    // Resolve API key early — no need to contact mirrors if key is missing
     const apiKey = await getApiKey();
     if (!apiKey) {
-      printMembershipMessage(
-        "API key not set",
-        args.md5,
-        client.getDomain() ?? undefined,
-      );
+      printMembershipMessage("API key not set", args.md5);
       process.exit(1);
     }
 
     // Get download URL
     const spinner = createSpinner("Getting download link...").start();
+    const client = new AnnaClient({
+      onStatus: (msg) => spinner.update({ text: msg }),
+    });
 
-    const { url, error } = await client.getFastDownloadUrl(args.md5, apiKey);
-
-    if (error || !url) {
-      spinner.error({ text: "Failed" });
-      if (
-        error &&
-        (error.toLowerCase().includes("not a member") ||
-          error.toLowerCase().includes("invalid") ||
-          error.toLowerCase().includes("expired"))
-      ) {
-        printMembershipMessage(
-          error,
-          args.md5,
-          client.getDomain() ?? undefined,
-        );
-      } else {
-        printError(error || "Failed to get download URL");
+    let url: string;
+    try {
+      const result = await client.getFastDownloadUrl(args.md5, apiKey);
+      if (result.error || !result.url) {
+        spinner.error({ text: "Failed" });
+        const error = result.error;
+        if (
+          error &&
+          (error.toLowerCase().includes("not a member") ||
+            error.toLowerCase().includes("invalid") ||
+            error.toLowerCase().includes("expired"))
+        ) {
+          printMembershipMessage(
+            error,
+            args.md5,
+            client.getDomain() ?? undefined,
+          );
+        } else {
+          printError(error || "Failed to get download URL");
+        }
+        process.exit(1);
       }
+      url = result.url;
+    } catch (e) {
+      spinner.error({ text: e instanceof Error ? e.message : String(e) });
       process.exit(1);
     }
 

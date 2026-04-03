@@ -26,10 +26,18 @@ export default defineCommand({
       process.exit(1);
     }
 
-    const client = new AnnaClient();
     const spinner = createSpinner("Fetching details...").start();
+    const client = new AnnaClient({
+      onStatus: (msg) => spinner.update({ text: msg }),
+    });
 
-    const details = await client.getDetails(args.md5);
+    let details;
+    try {
+      details = await client.getDetails(args.md5);
+    } catch (e) {
+      spinner.error({ text: e instanceof Error ? e.message : String(e) });
+      process.exit(1);
+    }
 
     spinner.stop();
     process.stderr.write("\r\x1b[K");
