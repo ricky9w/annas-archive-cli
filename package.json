@@ -1,0 +1,34 @@
+{
+  "name": "annas-archive-cli",
+  "version": "0.1.0",
+  "description": "Search and download ebooks from Anna's Archive",
+  "type": "module",
+  "bin": {
+    "annas": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "ebook",
+    "annas-archive",
+    "cli",
+    "download",
+    "search"
+  ],
+  "author": "ricky9w",
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.2.0",
+    "citty": "^0.2.2",
+    "nanospinner": "^1.2.2",
+    "node-html-parser": "^7.1.0",
+    "picocolors": "^1.1.1"
+  }
+}
