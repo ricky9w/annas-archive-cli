@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Check (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - runtime: node-20
+            node-version: "20"
+          - runtime: node-22
+            node-version: "22"
+          - runtime: bun
+            node-version: "22"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.runtime == 'bun'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        if: matrix.runtime == 'bun'
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npx tsup
+
+      - name: Smoke test (Node.js)
+        if: startsWith(matrix.runtime, 'node')
+        run: |
+          node dist/index.js --version
+          node dist/index.js config path
+          node dist/index.js download invalidhash 2>&1 | grep -q "Invalid MD5"
+          node dist/index.js search "test" --limit foo 2>&1 | grep -q "positive integer"
+          echo "All smoke tests passed"
+
+      - name: Smoke test (Bun)
+        if: matrix.runtime == 'bun'
+        run: |
+          bun dist/index.js --version
+          bun dist/index.js config path
+          bun src/index.ts --version
+          echo "All smoke tests passed"
