@@ -1,16 +1,20 @@
 # annas-archive-cli
 
-Search and download ebooks from [Anna's Archive](https://annas-archive.gl) — a Bun + TypeScript CLI.
+Search and download ebooks from [Anna's Archive](https://annas-archive.gl) — a TypeScript CLI that runs on both Node.js and Bun.
 
 ## Installation
 
 ```bash
 # Run directly (no install)
+npx annas-archive-cli search "Clean Code"
 bunx annas-archive-cli search "Clean Code"
 
 # Global install
+npm add -g annas-archive-cli
 bun add -g annas-archive-cli
 ```
+
+Requires **Node.js >= 20** or **Bun >= 1.0**.
 
 ## Quick Start
 
@@ -39,7 +43,7 @@ Search for books by title, author, or both.
 | `-f, --format <ext>` | Filter by format: `pdf`, `epub`, `mobi`, `azw3`, `djvu` |
 | `-l, --limit <n>` | Max results (default: 10) |
 | `-i, --interactive` | Pick a result and download interactively |
-| `-v, --verify <str>` | Highlight results containing this string |
+| `-V, --verify <str>` | Highlight results containing this string |
 | `--json` | JSON output |
 
 ### `annas download <md5>`
@@ -90,7 +94,7 @@ export ANNAS_ARCHIVE_KEY="your-key-here"
 
 **Precedence**: environment variable > config file.
 
-Config is stored at `~/.config/annas-archive/config.json` (respects `$XDG_CONFIG_HOME`).
+Config is stored at `~/.config/annas-archive/config.json` (respects `$XDG_CONFIG_HOME`). The config file is created with `600` permissions to protect your API key.
 
 ### Format Priority
 
@@ -98,24 +102,41 @@ When no format is specified, results are sorted by year (most recent first). Sug
 
 ## Mirror Fallback
 
-The CLI automatically tries multiple mirrors if the primary domain is unreachable:
+The CLI automatically probes multiple mirrors **concurrently** and uses the fastest responding one:
 
-1. annas-archive.gl (primary)
-2. annas-archive.li
-3. annas-archive.in
-4. annas-archive.pm
+- annas-archive.gl
+- annas-archive.li
+- annas-archive.in
+- annas-archive.pm
 
-If all known mirrors fail, it checks the [status page](https://open-slum.pages.dev/) to discover new domains automatically.
+The winning mirror is cached for subsequent requests. If all known mirrors fail, it checks the [status page](https://open-slum.pages.dev/) to discover new domains automatically.
 
 ## Features
 
-- Interactive mode with beautiful prompts
-- Colored terminal output
-- Download progress with retry (up to 3 attempts)
-- Automatic mirror fallback and discovery
-- XDG-compliant config storage
-- Proper HTML parsing (no fragile regex)
-- Safe filename sanitization
+- **Cross-runtime** — works on both Node.js (>=20) and Bun
+- **Streaming downloads** — constant memory usage regardless of file size
+- **Resume support** — interrupted downloads resume from where they left off
+- **MD5 integrity check** — verifies downloaded files against expected hash
+- **Concurrent mirror probing** — fastest mirror wins, no sequential waiting
+- **Automatic mirror discovery** — finds new mirrors when known ones are down
+- **Interactive mode** — search, pick, and download with beautiful prompts
+- **Retry with backoff** — up to 3 attempts with exponential backoff
+- **Stall detection** — aborts and retries if no data received for 30 seconds
+- **Safe filenames** — sanitizes filenames from URLs, prevents path traversal
+- **XDG-compliant config** — respects `$XDG_CONFIG_HOME`
+
+## Development
+
+```bash
+# Run from source (requires Bun)
+bun src/index.ts search "test"
+
+# Type-check
+bun run --bun tsc --noEmit
+
+# Build for Node.js
+bun run build
+```
 
 ## Troubleshooting
 

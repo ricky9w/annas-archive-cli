@@ -22,6 +22,14 @@
   ],
   "author": "ricky9w",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricky9w/annas-archive-cli.git"
+  },
+  "homepage": "https://github.com/ricky9w/annas-archive-cli#readme",
+  "bugs": {
+    "url": "https://github.com/ricky9w/annas-archive-cli/issues"
+  },
   "engines": {
     "bun": ">=1.0.0",
     "node": ">=20.0.0"

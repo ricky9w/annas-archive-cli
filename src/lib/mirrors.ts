@@ -36,6 +36,7 @@ export class MirrorManager {
   async fetch(path: string, init?: RequestInit): Promise<Response> {
     // If we have a cached working domain, try it first
     if (this.workingDomain) {
+      this.onStatus?.(`Connecting to ${this.workingDomain}...`);
       const res = await this.tryFetch(this.workingDomain, path, init);
       if (res) return res;
       // Cached domain failed — reset and try all
@@ -43,10 +44,11 @@ export class MirrorManager {
     }
 
     // Race all known mirrors concurrently — fastest response wins
-    this.onStatus?.("Probing mirrors...");
+    this.onStatus?.(`Probing ${KNOWN_MIRRORS.length} mirrors...`);
     const knownResult = await this.raceMirrors(KNOWN_MIRRORS, path, init);
     if (knownResult) {
       this.workingDomain = knownResult.domain;
+      this.onStatus?.(`Connected to ${knownResult.domain}`);
       return knownResult.response;
     }
 
@@ -54,9 +56,11 @@ export class MirrorManager {
     this.onStatus?.("Discovering new mirrors...");
     const discovered = await this.discoverMirrors();
     if (discovered.length > 0) {
+      this.onStatus?.(`Probing ${discovered.length} discovered mirrors...`);
       const discoveredResult = await this.raceMirrors(discovered, path, init);
       if (discoveredResult) {
         this.workingDomain = discoveredResult.domain;
+        this.onStatus?.(`Connected to ${discoveredResult.domain}`);
         return discoveredResult.response;
       }
     }
@@ -74,7 +78,6 @@ export class MirrorManager {
     try {
       return await Promise.any(
         domains.map(async (domain) => {
-          this.onStatus?.(`Trying ${domain}...`);
           const res = await this.tryFetch(domain, path, init);
           if (!res) throw new Error(`${domain} failed`);
           return { domain, response: res };
