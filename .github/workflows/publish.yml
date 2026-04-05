@@ -18,6 +18,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Configure npm for OIDC
+        run: |
+          npm config set //registry.npmjs.org/:_authToken ""
+          npm whoami 2>/dev/null || echo "Will authenticate via OIDC"
 
       - name: Install dependencies
         run: npm install
