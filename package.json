@@ -4,7 +4,7 @@
   "description": "Search and download ebooks from Anna's Archive",
   "type": "module",
   "bin": {
-    "annas": "./dist/index.js"
+    "annas": "dist/index.js"
   },
   "files": [
     "dist"
