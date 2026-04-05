@@ -11,6 +11,7 @@ jobs:
     name: Check (${{ matrix.runtime }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runtime: node-20
@@ -30,12 +31,17 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: matrix.runtime == 'bun'
 
-      - name: Install dependencies
+      - name: Install dependencies (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun install
+
+      - name: Install dependencies (Node.js)
+        if: startsWith(matrix.runtime, 'node')
         run: npm install
 
       - name: Type check
         if: matrix.runtime == 'bun'
-        run: npx tsc --noEmit
+        run: bunx tsc --noEmit
 
       - name: Build
         run: npx tsup
