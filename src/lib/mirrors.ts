@@ -1,3 +1,5 @@
+import { log } from "../utils/logger.ts";
+
 const KNOWN_MIRRORS = [
   "annas-archive.gl",
   "annas-archive.li",
@@ -36,23 +38,28 @@ export class MirrorManager {
   async fetch(path: string, init?: RequestInit): Promise<Response> {
     // If we have a cached working domain, try it first
     if (this.workingDomain) {
+      log.debug("mirror", `using cached domain: ${this.workingDomain}`);
       this.onStatus?.(`Connecting to ${this.workingDomain}...`);
       const res = await this.tryFetch(this.workingDomain, path, init);
       if (res) return res;
       // Cached domain failed — reset and try all
+      log.info("mirror", `cached domain ${this.workingDomain} failed, trying all mirrors`);
       this.workingDomain = null;
     }
 
     // Race all known mirrors concurrently — fastest response wins
+    log.debug("mirror", `racing ${KNOWN_MIRRORS.length} known mirrors: ${KNOWN_MIRRORS.join(", ")}`);
     this.onStatus?.(`Probing ${KNOWN_MIRRORS.length} mirrors...`);
     const knownResult = await this.raceMirrors(KNOWN_MIRRORS, path, init);
     if (knownResult) {
       this.workingDomain = knownResult.domain;
+      log.info("mirror", `connected to ${knownResult.domain}`);
       this.onStatus?.(`Connected to ${knownResult.domain}`);
       return knownResult.response;
     }
 
     // All known mirrors failed — discover and race new ones
+    log.info("mirror", "all known mirrors failed, discovering new ones");
     this.onStatus?.("Discovering new mirrors...");
     const discovered = await this.discoverMirrors();
     if (discovered.length > 0) {
@@ -60,11 +67,13 @@ export class MirrorManager {
       const discoveredResult = await this.raceMirrors(discovered, path, init);
       if (discoveredResult) {
         this.workingDomain = discoveredResult.domain;
+        log.info("mirror", `connected to ${discoveredResult.domain}`);
         this.onStatus?.(`Connected to ${discoveredResult.domain}`);
         return discoveredResult.response;
       }
     }
 
+    log.error("mirror", "could not connect to any mirror");
     throw new Error("Could not connect to any mirror");
   }
 
@@ -96,6 +105,7 @@ export class MirrorManager {
   ): Promise<Response | null> {
     try {
       const url = `https://${domain}${path}`;
+      log.debug("mirror", `GET ${url}`);
       const res = await fetch(url, {
         ...init,
         headers: {
@@ -108,6 +118,7 @@ export class MirrorManager {
 
       // 5xx = mirror issue, try next
       if (res.status >= 500) {
+        log.warn("mirror", `${domain}: HTTP ${res.status}, skipping`);
         await res.body?.cancel();
         return null;
       }
@@ -123,6 +134,7 @@ export class MirrorManager {
         const clone = res.clone();
         const text = await clone.text();
         if (/<title>\s*Redirecting/i.test(text)) {
+          log.warn("mirror", `${domain}: parked/redirect page detected, skipping`);
           await res.body?.cancel();
           return null;
         }
@@ -130,7 +142,8 @@ export class MirrorManager {
 
       // 2xx/3xx/4xx = mirror is working (caller handles the response)
       return res;
-    } catch {
+    } catch (e) {
+      log.debug("mirror", `${domain}: ${e instanceof Error ? e.message : String(e)}`);
       return null;
     }
   }
@@ -156,8 +169,10 @@ export class MirrorManager {
         }
       }
 
+      log.debug("mirror", `discovered ${domains.length} new mirrors${domains.length > 0 ? `: ${domains.join(", ")}` : ""}`);
       return domains;
-    } catch {
+    } catch (e) {
+      log.warn("mirror", `mirror discovery failed: ${e instanceof Error ? e.message : String(e)}`);
       return [];
     }
   }

@@ -6,6 +6,7 @@ import { join, resolve, sep } from "node:path";
 import { sanitizeFilename } from "../utils/sanitize.ts";
 import { USER_AGENT } from "./mirrors.ts";
 import { DownloadError, StallError } from "../utils/errors.ts";
+import { log } from "../utils/logger.ts";
 
 interface DownloadProgress {
   downloaded: number;
@@ -58,6 +59,8 @@ export async function downloadBook(
     throw new Error("Invalid filename: path traversal detected");
   }
 
+  log.debug("download", `downloading ${filename} to ${outputDir}`);
+
   let lastError: Error | null = null;
   let bytesOnDisk = 0;
 
@@ -94,6 +97,7 @@ export async function downloadBook(
 
       if (attempt < maxRetries) {
         const delay = Math.pow(2, attempt - 1) * 1000;
+        log.warn("download", `attempt ${attempt}/${maxRetries} failed: ${lastError.message}, retrying in ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -115,6 +119,7 @@ async function streamDownload(
   };
 
   if (resumeFrom > 0) {
+    log.debug("download", `resuming from byte ${resumeFrom}`);
     headers["Range"] = `bytes=${resumeFrom}-`;
   }
 
@@ -144,6 +149,7 @@ async function streamDownload(
 
   // Range not satisfiable — file already complete
   if (resumeFrom > 0 && res.status === 416) {
+    log.debug("download", `file already complete (${resumeFrom} bytes)`);
     clearTimeout(stallTimer);
     await res.body?.cancel();
     return { bytesWritten: resumeFrom, md5Hash: null };
@@ -151,6 +157,7 @@ async function streamDownload(
 
   // Server ignored Range header — restart from beginning
   if (resumeFrom > 0 && res.status === 200) {
+    log.warn("download", "server ignored Range header, restarting");
     resumeFrom = 0;
   }
 
@@ -214,6 +221,7 @@ async function streamDownload(
     }
     clearTimeout(stallTimer);
     if (controller.signal.aborted) {
+      log.warn("download", `download stalled (no data for ${STALL_TIMEOUT_MS / 1000}s)`);
       throw new StallError(STALL_TIMEOUT_MS / 1000);
     }
     throw e;

@@ -3,6 +3,7 @@ import type { MirrorManagerOptions } from "./mirrors.ts";
 import { parseSearchResults, parseBookDetails } from "./parser.ts";
 import type { BookResult, BookDetails, SearchOptions } from "../types.ts";
 import { NetworkError } from "../utils/errors.ts";
+import { log } from "../utils/logger.ts";
 
 interface FastDownloadResponse {
   download_url?: string;
@@ -32,9 +33,12 @@ export class AnnaClient {
     if (format) params.set("ext", format);
     if (sort) params.set("sort", sort);
 
+    log.debug("client", `search query="${query}" format=${format ?? "any"} sort=${sort} limit=${limit}`);
+
     const res = await this.mirrors.fetch(`/search?${params}`);
     if (!res.ok) {
       await res.body?.cancel();
+      log.warn("client", `search failed: HTTP ${res.status}`);
       const hint =
         res.status === 403
           ? " (Forbidden — you may be rate-limited)"
@@ -46,6 +50,7 @@ export class AnnaClient {
 
     const html = await res.text();
     const results = parseSearchResults(html, limit);
+    log.debug("client", `search returned ${results.length} results (HTML ${html.length} bytes)`);
 
     if (verify) {
       const lower = verify.toLowerCase();
@@ -61,10 +66,14 @@ export class AnnaClient {
 
   /** Get detailed information about a book. */
   async getDetails(md5: string): Promise<BookDetails | null> {
+    log.debug("client", `fetching details for ${md5}`);
     const res = await this.mirrors.fetch(`/md5/${md5}`);
     if (!res.ok) {
       await res.body?.cancel();
-      if (res.status === 404) return null;
+      if (res.status === 404) {
+        log.debug("client", `book not found: ${md5}`);
+        return null;
+      }
       throw new NetworkError(`Details fetch failed: HTTP ${res.status}`, res.status);
     }
 
@@ -89,6 +98,7 @@ export class AnnaClient {
       domain_index: String(domainIndex),
     });
 
+    log.debug("client", `requesting fast download URL for ${md5}`);
     const res = await this.mirrors.fetch(
       `/dyn/api/fast_download.json?${params}`,
     );
@@ -100,10 +110,14 @@ export class AnnaClient {
     try {
       data = JSON.parse(text);
     } catch {
+      log.warn("client", `unexpected response from fast_download API: HTTP ${res.status}, body length ${text.length}`);
       return { error: `Unexpected response (HTTP ${res.status})` };
     }
 
-    if (data.error) return { error: data.error };
+    if (data.error) {
+      log.warn("client", `fast download API error: ${data.error}`);
+      return { error: data.error };
+    }
     if (!data.download_url) return { error: "No download URL in response" };
 
     return { url: data.download_url };

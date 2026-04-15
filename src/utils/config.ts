@@ -2,6 +2,7 @@ import { mkdir, chmod, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppConfig } from "../types.ts";
+import { log } from "./logger.ts";
 
 const APP_NAME = "annas-archive";
 
@@ -21,18 +22,18 @@ export async function loadConfig(): Promise<AppConfig> {
   const configPath = getConfigPath();
   try {
     const raw = await readFile(configPath, "utf-8");
+    log.debug("config", `loaded config from ${configPath}`);
     return JSON.parse(raw) as AppConfig;
   } catch (e) {
     const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") return {};
+    if (code === "ENOENT") {
+      log.debug("config", `no config file at ${configPath}, using defaults`);
+      return {};
+    }
     if (code === "EACCES" || code === "EPERM") {
-      console.error(
-        `Warning: config file ${configPath} is not readable (${code}). Using defaults.`,
-      );
+      log.warn("config", `config file ${configPath} not readable (${code}), using defaults`);
     } else {
-      console.error(
-        `Warning: config file ${configPath} could not be loaded. Using defaults.`,
-      );
+      log.warn("config", `config file ${configPath} could not be loaded, using defaults`);
     }
   }
   return {};
@@ -48,9 +49,13 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 export async function getApiKey(): Promise<string | null> {
   // Precedence: env var > config file
   const envKey = process.env.ANNAS_ARCHIVE_KEY;
-  if (envKey && envKey.trim()) return envKey.trim();
+  if (envKey && envKey.trim()) {
+    log.debug("config", "API key source: environment variable");
+    return envKey.trim();
+  }
 
   const config = await loadConfig();
+  log.debug("config", `API key source: ${config.key ? "config file" : "none"}`);
   return config.key || null;
 }
 

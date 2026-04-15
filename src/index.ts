@@ -7,6 +7,18 @@ const main = defineCommand({
     version: pkg.version,
     description: "Search and download ebooks from Anna's Archive",
   },
+  args: {
+    verbose: {
+      type: "boolean",
+      description: "Show info/warn/error diagnostic logs",
+      default: false,
+    },
+    debug: {
+      type: "boolean",
+      description: "Show all diagnostic logs (includes --verbose)",
+      default: false,
+    },
+  },
   subCommands: {
     search: () => import("./commands/search.ts").then((m) => m.default),
     download: () => import("./commands/download.ts").then((m) => m.default),

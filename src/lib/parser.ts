@@ -1,5 +1,6 @@
 import { parse } from "node-html-parser";
 import type { BookResult, BookDetails, DownloadOption } from "../types.ts";
+import { log } from "../utils/logger.ts";
 
 /**
  * Parse search results HTML into structured BookResult array.
@@ -17,6 +18,12 @@ export function parseSearchResults(html: string, limit = 10): BookResult[] {
     const href = link.getAttribute("href") || "";
     const match = href.match(/\/md5\/([a-f0-9]{32})/);
     if (match) md5Set.add(match[1]);
+  }
+
+  if (md5Set.size === 0) {
+    log.warn("parser", `no md5 links found in HTML (${html.length} bytes) -- page structure may have changed`);
+  } else {
+    log.debug("parser", `found ${md5Set.size} unique md5 links in HTML`);
   }
 
   const md5s = [...md5Set].slice(0, limit);
@@ -78,6 +85,7 @@ export function parseSearchResults(html: string, limit = 10): BookResult[] {
     });
   }
 
+  log.debug("parser", `parsed ${results.length} results`);
   return results;
 }
 
@@ -108,7 +116,10 @@ export function parseBookDetails(
     }
   }
 
-  if (!title) return null;
+  if (!title) {
+    log.warn("parser", `could not extract title for ${md5}`);
+    return null;
+  }
 
   // Extract download options
   const fast: DownloadOption[] = [];
