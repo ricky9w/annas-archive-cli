@@ -112,6 +112,22 @@ export class MirrorManager {
         return null;
       }
 
+      // Reject parked/redirect pages that return HTTP 200 but aren't real mirrors.
+      // These serve a tiny JS redirect page instead of actual content.
+      // Skip the check only when content-length confirms a large (real) response.
+      const contentLength = parseInt(
+        res.headers.get("content-length") || "0",
+        10,
+      );
+      if (contentLength < 10_000) {
+        const clone = res.clone();
+        const text = await clone.text();
+        if (/<title>\s*Redirecting/i.test(text)) {
+          await res.body?.cancel();
+          return null;
+        }
+      }
+
       // 2xx/3xx/4xx = mirror is working (caller handles the response)
       return res;
     } catch {
