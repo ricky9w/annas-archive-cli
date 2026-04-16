@@ -138,6 +138,25 @@ bun run --bun tsc --noEmit
 bun run build
 ```
 
+## Diagnostic Logging
+
+Two global flags enable structured logs on stderr. Default mode is completely silent — logs never touch stdout, so `--json` piping is unaffected.
+
+| Flag | Levels shown | Use for |
+|------|-------------|---------|
+| `--verbose` | info, warn, error | Mirror connections, API errors, quota usage, parked-domain warnings |
+| `--debug`   | debug, info, warn, error | All of the above plus HTTP URLs, parser counts, resume offsets, internal state |
+
+```
+$ annas search "python" --limit 1 --verbose
+[warn]  [mirror] annas-archive.li: parked/redirect page detected, skipping
+[info]  [mirror] connected to annas-archive.gl
+  1. Python Programming for Beginners ...
+
+$ annas download <md5> --verbose
+[info]  [client] quota: 4/10 downloads remaining (6 used in last 18h)
+```
+
 ## Troubleshooting
 
 ### SSL Certificate Error on macOS
