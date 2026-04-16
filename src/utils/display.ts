@@ -1,5 +1,6 @@
 import pc from "picocolors";
 import type { BookResult, BookDetails } from "../types.ts";
+import type { FastDownloadQuota } from "../lib/client.ts";
 
 export function formatBookResult(result: BookResult, index: number): string {
   const verified = result.verified ? pc.green(" [VERIFIED]") : "";
@@ -72,6 +73,63 @@ export function printMembershipMessage(
     `  ${pc.cyan("annas config set key <your-key>")}`,
     pc.dim("  Or set the environment variable:"),
     `  ${pc.cyan('export ANNAS_ARCHIVE_KEY="your-key"')}`,
+    "",
+  );
+
+  console.error(lines.join("\n"));
+}
+
+export function printQuotaInfo(quota: FastDownloadQuota): void {
+  const left = quota.downloadsLeft;
+  const total = quota.downloadsPerDay;
+  const numColor = left === 0 ? pc.red : left <= 2 ? pc.yellow : pc.green;
+  console.error(
+    pc.dim(`  Fast downloads: ${numColor(String(left))}${pc.dim(`/${total}`)}${pc.dim(" remaining (rolling 18h window)")}`),
+  );
+}
+
+export function printQuotaExhausted(
+  quota: FastDownloadQuota | undefined,
+  md5: string | undefined,
+  domain: string | undefined,
+): void {
+  const baseUrl = domain ? `https://${domain}` : "https://annas-archive.gl";
+  const lines: string[] = [
+    "",
+    pc.yellow("  Fast download quota exhausted"),
+    "",
+  ];
+
+  if (quota) {
+    lines.push(
+      pc.dim(
+        `  You've used ${quota.downloadsPerDay - quota.downloadsLeft} of ${quota.downloadsPerDay} fast downloads in the last 18 hours.`,
+      ),
+    );
+  } else {
+    lines.push(
+      pc.dim("  You've used all of your fast downloads in the last 18 hours."),
+    );
+  }
+
+  lines.push(
+    "",
+    pc.dim("  Anna's Archive uses a rolling 18-hour window — each slot frees up"),
+    pc.dim("  18 hours after the download that consumed it."),
+    "",
+  );
+
+  if (md5) {
+    lines.push(
+      pc.dim("  You can still download slowly via the browser (free, captcha-gated):"),
+      `  ${pc.underline(`${baseUrl}/md5/${md5}`)}`,
+      "",
+    );
+  }
+
+  lines.push(
+    pc.dim("  View your exact quota and history at:"),
+    `  ${pc.underline(`${baseUrl}/account`)}`,
     "",
   );
 

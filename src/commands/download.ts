@@ -7,8 +7,16 @@ import {
   printError,
   printSuccess,
   printMembershipMessage,
+  printQuotaExhausted,
+  printQuotaInfo,
 } from "../utils/display.ts";
-import { isValidMd5, normalizeMd5, isMembershipError } from "../utils/validation.ts";
+import {
+  isValidMd5,
+  normalizeMd5,
+  isMembershipError,
+  isQuotaExhaustedError,
+} from "../utils/validation.ts";
+import type { FastDownloadQuota } from "../lib/client.ts";
 
 export default defineCommand({
   meta: {
@@ -53,12 +61,16 @@ export default defineCommand({
     });
 
     let url: string;
+    let quota: FastDownloadQuota | undefined;
     try {
       const result = await client.getFastDownloadUrl(md5, apiKey);
+      quota = result.quota;
       if (result.error || !result.url) {
         spinner.error({ text: "Failed" });
         const error = result.error;
-        if (error && isMembershipError(error)) {
+        if (isQuotaExhaustedError(error, result.httpStatus)) {
+          printQuotaExhausted(result.quota, md5, client.getDomain() ?? undefined);
+        } else if (error && isMembershipError(error)) {
           printMembershipMessage(
             error,
             md5,
@@ -100,6 +112,7 @@ export default defineCommand({
 
       dlSpinner.success({ text: "Download complete" });
       printSuccess(`Saved to: ${path}`);
+      if (quota) printQuotaInfo(quota);
     } catch (e) {
       dlSpinner.error({ text: "Download failed" });
       printError(e instanceof Error ? e.message : String(e));

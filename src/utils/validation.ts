@@ -16,3 +16,13 @@ export function isMembershipError(error: string): boolean {
     lower.includes("expired")
   );
 }
+
+export function isQuotaExhaustedError(
+  error: string | undefined,
+  httpStatus?: number,
+): boolean {
+  if (httpStatus === 429) return true;
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return lower.includes("no downloads left") || lower.includes("download limit");
+}
